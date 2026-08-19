@@ -11,9 +11,10 @@ function htmlDecode(text) {
     '&amp;': '&', '&amp': '&'
   };
 
-  return text.replace(/&(?:lt|gt|quot|apos|amp);?|&#\d+;?|&#[xX][0-9a-fA-F]+;?/g, (match) => {
-    if (namedEntities[match]) {
-      return namedEntities[match];
+  return text.replace(/&(?:lt|gt|quot|apos|amp);?|&#\d+;?|&#[xX][0-9a-fA-F]+;?/gi, (match) => {
+    const lower = match.toLowerCase();
+    if (namedEntities[lower]) {
+      return namedEntities[lower];
     }
     const decMatch = match.match(/^&#(\d+);?$/);
     if (decMatch) {
@@ -100,7 +101,7 @@ function extractMarkdownUrls(text) {
 // General URL safety checkers
 function checkUrls(urls, text) {
   // DANGEROUS_SCHEME Check 1: General text scheme match
-  if (/(?:^|[^\w])(javascript|data|vbscript)\s*:/i.test(text)) {
+  if (/\b(javascript|data|vbscript)\s*:/i.test(text)) {
     return "DANGEROUS_SCHEME";
   }
 
@@ -151,11 +152,11 @@ function checkUrls(urls, text) {
 // Channel validation rules
 function checkHtml(text) {
   // 1. SCRIPT_TAG
-  if (/<[ \t\r\n]*(script|iframe|object|embed)(?![a-zA-Z0-9_-])/i.test(text)) {
+  if (/<\s*(script|iframe|object|embed)(?![a-zA-Z0-9_-])/i.test(text)) {
     return "SCRIPT_TAG";
   }
   // 2. EVENT_HANDLER
-  if (/(?:^|[^\w])on[a-zA-Z0-9_-]+\s*=/i.test(text)) {
+  if (/\bon[a-zA-Z0-9_-]+\s*=/i.test(text)) {
     return "EVENT_HANDLER";
   }
   // 3. DANGEROUS_SCHEME & EXTERNAL_EXFIL
@@ -190,7 +191,7 @@ function checkSql(text) {
     if (text.includes(m)) return "SQL_METACHAR";
   }
   if (/\bunion\b/i.test(text)) return "SQL_METACHAR";
-  if (/\bor[\s(]*1\s*=\s*1/i.test(text)) return "SQL_METACHAR";
+  if (/\bor[\s(]*1\s*=\s*1\b/i.test(text)) return "SQL_METACHAR";
   return "SAFE";
 }
 
@@ -257,7 +258,7 @@ function validateOutput(body) {
 
 const server = http.createServer((req, res) => {
   res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'POST, GET, OPTIONS');
+  res.setHeader('Access-Control-Allow-Methods', 'POST, GET, OPTIONS, HEAD');
   res.setHeader('Access-Control-Allow-Headers', '*');
 
   if (req.method === 'OPTIONS') {

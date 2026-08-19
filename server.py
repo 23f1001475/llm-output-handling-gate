@@ -7,7 +7,6 @@ import os
 
 # Helper decoding functions
 def html_decode(text):
-    # Decode only the 5 specified named entities and numeric decimal/hex entities
     named_entities = {
         '&lt;': '<', '&lt': '<',
         '&gt;': '>', '&gt': '>',
@@ -17,8 +16,9 @@ def html_decode(text):
     }
     def replace_entity(match):
         entity = match.group(0)
-        if entity in named_entities:
-            return named_entities[entity]
+        lower_entity = entity.lower()
+        if lower_entity in named_entities:
+            return named_entities[lower_entity]
         dec_match = re.match(r'^&#(\d+);?$', entity)
         if dec_match:
             try:
@@ -34,7 +34,7 @@ def html_decode(text):
         return entity
 
     pattern = r'&(?:lt|gt|quot|apos|amp);?|&#\d+;?|&#[xX][0-9a-fA-F]+;?'
-    return re.sub(pattern, replace_entity, text)
+    return re.sub(pattern, replace_entity, text, flags=re.IGNORECASE)
 
 
 def unicode_decode(text):
@@ -49,7 +49,10 @@ def unicode_decode(text):
 
 def decode_once(text):
     # 1. Percent-escapes
-    text_1 = urllib.parse.unquote(text)
+    try:
+        text_1 = urllib.parse.unquote(text)
+    except Exception:
+        text_1 = text
     # 2. HTML entities
     text_2 = html_decode(text_1)
     # 3. Unicode escapes
@@ -173,19 +176,17 @@ def check_url_channel(text):
 
 
 def check_sql(text):
-    # SQL_METACHAR: single quote, double quote, semicolon, --, /*, the word union, or or 1=1 (case-insensitive)
     for metachar in ["'", '"', ';', '--', '/*']:
         if metachar in text:
             return "SQL_METACHAR"
     if re.search(r'\bunion\b', text, re.IGNORECASE):
         return "SQL_METACHAR"
-    if re.search(r'(?i)\bor[\s(]*1\s*=\s*1', text):
+    if re.search(r'(?i)\bor[\s(]*1\s*=\s*1\b', text):
         return "SQL_METACHAR"
     return "SAFE"
 
 
 def check_shell(text):
-    # SHELL_METACHAR: any of ; & | ` < > or $( or ${
     for metachar in [';', '&', '|', '`', '<', '>', '$(', '${']:
         if metachar in text:
             return "SHELL_METACHAR"
@@ -252,11 +253,14 @@ class SafetyGateHandler(BaseHTTPRequestHandler):
     def do_OPTIONS(self):
         self.send_response(200)
         self.send_header('Access-Control-Allow-Origin', '*')
-        self.send_header('Access-Control-Allow-Methods', 'POST, GET, OPTIONS')
+        self.send_header('Access-Control-Allow-Methods', 'POST, GET, OPTIONS, HEAD')
         self.send_header('Access-Control-Allow-Headers', '*')
         self.end_headers()
 
     def do_GET(self):
+        self.do_POST()
+
+    def do_HEAD(self):
         self.do_POST()
 
     def do_POST(self):
