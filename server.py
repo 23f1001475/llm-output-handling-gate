@@ -1,5 +1,6 @@
 import json
 import re
+import html
 import urllib.parse
 from http.server import HTTPServer, BaseHTTPRequestHandler
 import sys
@@ -7,39 +8,9 @@ import os
 
 # Helper decoding functions
 def html_decode(text):
-    named_entities = {
-        '&lt;': '<',
-        '&gt;': '>',
-        '&quot;': '"',
-        '&apos;': "'",
-        '&amp;': '&'
-    }
-    
-    def replace_entity(match):
-        entity = match.group(0)
-        if entity in named_entities:
-            return named_entities[entity]
-        
-        # Check if numeric decimal
-        dec_match = re.match(r'^&#(\d+);$', entity)
-        if dec_match:
-            try:
-                return chr(int(dec_match.group(1)))
-            except ValueError:
-                return entity
-                
-        # Check if numeric hex
-        hex_match = re.match(r'^&#[xX]([0-9a-fA-F]+);$', entity)
-        if hex_match:
-            try:
-                return chr(int(hex_match.group(1), 16))
-            except ValueError:
-                return entity
-                
-        return entity
-
-    pattern = r'&(?:lt|gt|quot|apos|amp);|&#\d+;|&#[xX][0-9a-fA-F]+;'
-    return re.sub(pattern, replace_entity, text)
+    # html.unescape handles named entities (&lt;, &gt;, &quot;, &apos;, &amp; and others)
+    # as well as numeric entities (decimal &#60; and hex &#x3c; with or without trailing semicolons)
+    return html.unescape(text)
 
 
 def unicode_decode(text):
@@ -70,7 +41,6 @@ def extract_markdown_urls(text):
         idx = text.find('](', start_idx)
         if idx == -1:
             break
-        # Find closing parenthesis, keeping track of nested parentheses
         paren_count = 1
         url_chars = []
         curr = idx + 2
@@ -88,7 +58,14 @@ def extract_markdown_urls(text):
             else:
                 url_chars.append(char)
             curr += 1
-        targets.append("".join(url_chars))
+        raw_target = "".join(url_chars).strip()
+        if raw_target.startswith('<') and raw_target.endswith('>'):
+            target = raw_target[1:-1].strip()
+        else:
+            tokens = raw_target.split()
+            target = tokens[0] if tokens else ""
+        if target:
+            targets.append(target)
         start_idx = idx + 2
     return targets
 
@@ -96,7 +73,6 @@ def extract_markdown_urls(text):
 # General URL safety checkers
 def check_urls(urls, text):
     # DANGEROUS_SCHEME Check 1: General text scheme match
-    # "the text contains javascript:, data: or vbscript: (case-insensitive, optional whitespace before the colon)"
     if re.search(r'(?i)\b(javascript|data|vbscript)\s*:', text):
         return "DANGEROUS_SCHEME"
         
@@ -132,7 +108,8 @@ def check_urls(urls, text):
                 if not hostname:
                     return "EXTERNAL_EXFIL"
                 
-                if hostname.lower() not in allowed_hosts:
+                hostname_lower = hostname.rstrip('.').lower()
+                if hostname_lower not in allowed_hosts:
                     return "EXTERNAL_EXFIL"
                     
     return "SAFE"
@@ -141,20 +118,14 @@ def check_urls(urls, text):
 # Channel validation rules
 def check_html(text):
     # 1. SCRIPT_TAG
-    # opening script, iframe, object or embed tag
-    if re.search(r'(?i)<\s*(script|iframe|object|embed)(?:\s|>|/|$)', text):
+    if re.search(r'(?i)<\s*(script|iframe|object|embed)(?![a-zA-Z0-9_-])', text):
         return "SCRIPT_TAG"
         
     # 2. EVENT_HANDLER
-    # an on...= attribute
-    # Exclude common non-event-handler words like one, once, only, onto, onion, ongoing, online, onset, onward, onus, oncoming
-    exclusions = {'one', 'once', 'only', 'onto', 'onion', 'ongoing', 'online', 'onset', 'onward', 'onus', 'oncoming'}
-    for match in re.finditer(r'(?i)\b(on[a-zA-Z]+)\s*=', text):
-        if match.group(1).lower() not in exclusions:
-            return "EVENT_HANDLER"
+    if re.search(r'(?i)\bon[a-zA-Z0-9_-]+\s*=', text):
+        return "EVENT_HANDLER"
         
     # 3. DANGEROUS_SCHEME & EXTERNAL_EXFIL
-    # Extract values of quoted src= and href= attributes
     urls = []
     for match in re.finditer(r'(?i)\b(?:src|href)\s*=\s*(["\'])(.*?)\1', text, re.DOTALL):
         urls.append(match.group(2))
@@ -168,18 +139,23 @@ def check_markdown(text):
 
 
 def check_url_channel(text):
-    urls = [text.strip()]
+    raw_url = text.strip()
+    if raw_url.startswith('<') and raw_url.endswith('>'):
+        raw_url = raw_url[1:-1].strip()
+    tokens = raw_url.split()
+    url_target = tokens[0] if tokens else ""
+    urls = [url_target] if url_target else []
     return check_urls(urls, text)
 
 
 def check_sql(text):
-    # SQL_METACHAR: a single quote, double quote, semicolon, --, /*, the word union, or or 1=1 (case-insensitive)
+    # SQL_METACHAR: single quote, double quote, semicolon, --, /*, the word union, or or 1=1 (case-insensitive)
     for metachar in ["'", '"', ';', '--', '/*']:
         if metachar in text:
             return "SQL_METACHAR"
     if re.search(r'\bunion\b', text, re.IGNORECASE):
         return "SQL_METACHAR"
-    if re.search(r'\bor\s+1\s*=\s*1\b', text, re.IGNORECASE):
+    if re.search(r'(?i)\bor[\s(]*1\s*=\s*1', text):
         return "SQL_METACHAR"
     return "SAFE"
 
@@ -216,7 +192,6 @@ def check_encoded_payload(channel, original_output):
 
 
 def validate_output(body):
-    # 1. INVALID_SCHEMA
     if not isinstance(body, dict):
         return {"safe": False, "reason": "INVALID_SCHEMA"}
         
@@ -235,12 +210,10 @@ def validate_output(body):
     if len(output) > 20000:
         return {"safe": False, "reason": "INVALID_SCHEMA"}
         
-    # 2. ENCODED_PAYLOAD
     encoded_reason = check_encoded_payload(channel, output)
     if encoded_reason != "SAFE":
         return {"safe": False, "reason": "ENCODED_PAYLOAD"}
         
-    # 3. Channel rules on original output
     channel_reason = run_channel_rules(channel, output)
     if channel_reason != "SAFE":
         return {"safe": False, "reason": channel_reason}
@@ -250,32 +223,42 @@ def validate_output(body):
 
 class SafetyGateHandler(BaseHTTPRequestHandler):
     def log_message(self, format, *args):
-        # Silence default request logging to keep outputs clean,
-        # but we can print to stderr if needed for debugging.
         pass
 
+    def do_OPTIONS(self):
+        self.send_response(200)
+        self.send_header('Access-Control-Allow-Origin', '*')
+        self.send_header('Access-Control-Allow-Methods', 'POST, GET, OPTIONS')
+        self.send_header('Access-Control-Allow-Headers', 'Content-Type')
+        self.end_headers()
+
+    def do_GET(self):
+        self.do_POST()
+
     def do_POST(self):
-        if self.path != "/sanitize-output":
+        parsed_path = urllib.parse.urlparse(self.path).path.rstrip('/')
+        if parsed_path != "/sanitize-output":
             self.send_response(404)
+            self.send_header('Content-Type', 'text/plain')
             self.end_headers()
             self.wfile.write(b"Not Found")
             return
 
         content_length = int(self.headers.get('Content-Length', 0))
-        body_bytes = self.rfile.read(content_length)
+        body_bytes = self.rfile.read(content_length) if content_length > 0 else b""
         
         try:
-            body_str = body_bytes.decode('utf-8')
+            body_str = body_bytes.decode('utf-8-sig', errors='replace')
             body = json.loads(body_str)
         except Exception:
             body = None
 
         response_data = validate_output(body)
-        
         response_bytes = json.dumps(response_data).encode('utf-8')
         
         self.send_response(200)
-        self.send_header('Content-Type', 'application/json')
+        self.send_header('Content-Type', 'application/json; charset=utf-8')
+        self.send_header('Access-Control-Allow-Origin', '*')
         self.send_header('Content-Length', str(len(response_bytes)))
         self.end_headers()
         self.wfile.write(response_bytes)
