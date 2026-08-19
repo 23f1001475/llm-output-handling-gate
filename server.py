@@ -299,7 +299,7 @@ class SafetyGateHandler(BaseHTTPRequestHandler):
         self.wfile.write(response_bytes)
 
 
-def run_server(port=8080):
+def run_server(port=7860):
     server_address = ('0.0.0.0', port)
     httpd = HTTPServer(server_address, SafetyGateHandler)
     print(f"Safety Gate Server running on port {port}...")
@@ -311,7 +311,7 @@ def run_server(port=8080):
 
 
 if __name__ == "__main__":
-    port = int(os.environ.get('PORT', 8080))
+    port = int(os.environ.get('PORT', 7860))
     if len(sys.argv) > 1:
         try:
             port = int(sys.argv[1])

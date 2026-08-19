@@ -302,7 +302,7 @@ const server = http.createServer((req, res) => {
 });
 
 if (require.main === module) {
-  const PORT = parseInt(process.env.PORT || '8080', 10);
+  const PORT = parseInt(process.env.PORT || '7860', 10);
   server.listen(PORT, '0.0.0.0', () => {
     console.log(`Safety Gate Node.js Server running on port ${PORT}`);
   });
