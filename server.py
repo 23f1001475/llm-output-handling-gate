@@ -1,6 +1,5 @@
 import json
 import re
-import html
 import urllib.parse
 from http.server import HTTPServer, BaseHTTPRequestHandler
 import sys
@@ -8,9 +7,34 @@ import os
 
 # Helper decoding functions
 def html_decode(text):
-    # html.unescape handles named entities (&lt;, &gt;, &quot;, &apos;, &amp; and others)
-    # as well as numeric entities (decimal &#60; and hex &#x3c; with or without trailing semicolons)
-    return html.unescape(text)
+    # Decode only the 5 specified named entities and numeric decimal/hex entities
+    named_entities = {
+        '&lt;': '<', '&lt': '<',
+        '&gt;': '>', '&gt': '>',
+        '&quot;': '"', '&quot': '"',
+        '&apos;': "'", '&apos': "'",
+        '&amp;': '&', '&amp': '&'
+    }
+    def replace_entity(match):
+        entity = match.group(0)
+        if entity in named_entities:
+            return named_entities[entity]
+        dec_match = re.match(r'^&#(\d+);?$', entity)
+        if dec_match:
+            try:
+                return chr(int(dec_match.group(1)))
+            except ValueError:
+                return entity
+        hex_match = re.match(r'^&#[xX]([0-9a-fA-F]+);?$', entity)
+        if hex_match:
+            try:
+                return chr(int(hex_match.group(1), 16))
+            except ValueError:
+                return entity
+        return entity
+
+    pattern = r'&(?:lt|gt|quot|apos|amp);?|&#\d+;?|&#[xX][0-9a-fA-F]+;?'
+    return re.sub(pattern, replace_entity, text)
 
 
 def unicode_decode(text):
@@ -229,24 +253,31 @@ class SafetyGateHandler(BaseHTTPRequestHandler):
         self.send_response(200)
         self.send_header('Access-Control-Allow-Origin', '*')
         self.send_header('Access-Control-Allow-Methods', 'POST, GET, OPTIONS')
-        self.send_header('Access-Control-Allow-Headers', 'Content-Type')
+        self.send_header('Access-Control-Allow-Headers', '*')
         self.end_headers()
 
     def do_GET(self):
         self.do_POST()
 
     def do_POST(self):
-        parsed_path = urllib.parse.urlparse(self.path).path.rstrip('/')
-        if parsed_path != "/sanitize-output":
+        clean_path = self.path.split('?')[0].rstrip('/')
+        if clean_path not in ["/sanitize-output", ""]:
             self.send_response(404)
             self.send_header('Content-Type', 'text/plain')
             self.end_headers()
             self.wfile.write(b"Not Found")
             return
 
-        content_length = int(self.headers.get('Content-Length', 0))
-        body_bytes = self.rfile.read(content_length) if content_length > 0 else b""
-        
+        content_length_hdr = self.headers.get('Content-Length')
+        if content_length_hdr is not None:
+            try:
+                length = int(content_length_hdr)
+                body_bytes = self.rfile.read(length)
+            except Exception:
+                body_bytes = b""
+        else:
+            body_bytes = b""
+
         try:
             body_str = body_bytes.decode('utf-8-sig', errors='replace')
             body = json.loads(body_str)
