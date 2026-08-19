@@ -1,9 +1,9 @@
 services:
   - type: web
     name: llm-output-handling-gate
-    env: python
+    env: node
     buildCommand: ""
-    startCommand: python server.py
+    startCommand: node server.js
     envVars:
       - key: PORT
         value: 10000

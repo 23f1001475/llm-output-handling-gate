@@ -1,0 +1,13 @@
+{
+  "name": "llm-output-handling-gate",
+  "version": "1.0.0",
+  "description": "LLM Output Handling Gate (OWASP LLM05)",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "test": "node test_server.js"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
