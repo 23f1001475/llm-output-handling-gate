@@ -156,7 +156,7 @@ function checkHtml(text) {
     return "SCRIPT_TAG";
   }
   // 2. EVENT_HANDLER
-  if (/\bon[a-zA-Z0-9_-]+\s*=/i.test(text)) {
+  if (/\bon[a-zA-Z0-9_-]*\s*=/i.test(text)) {
     return "EVENT_HANDLER";
   }
   // 3. DANGEROUS_SCHEME & EXTERNAL_EXFIL

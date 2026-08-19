@@ -144,12 +144,12 @@ def check_urls(urls, text):
 
 # Channel validation rules
 def check_html(text):
-    # 1. SCRIPT_TAG
+    # 1. SCRIPT_TAG: opening script, iframe, object or embed tag
     if re.search(r'(?i)<\s*(script|iframe|object|embed)(?![a-zA-Z0-9_-])', text):
         return "SCRIPT_TAG"
         
-    # 2. EVENT_HANDLER
-    if re.search(r'(?i)\bon[a-zA-Z0-9_-]+\s*=', text):
+    # 2. EVENT_HANDLER: an on...= attribute
+    if re.search(r'(?i)\bon[a-zA-Z0-9_-]*\s*=', text):
         return "EVENT_HANDLER"
         
     # 3. DANGEROUS_SCHEME & EXTERNAL_EXFIL
